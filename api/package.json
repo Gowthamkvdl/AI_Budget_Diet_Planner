@@ -1,26 +1,25 @@
 {
   "name": "api",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon --env-file .env app.js"
-  },
   "type": "module",
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "scripts": {
+    "start": "node --env-file .env app.js",
+    "dev": "nodemon --env-file .env app.js"
+  },
+  "engines": {
+    "node": "20.x"
+  },
   "dependencies": {
     "@google/genai": "^1.27.0",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
-    "express": "^5.1.0",
+    "express": "^4.18.2",
     "express-rate-limit": "^8.3.2",
-    "iconv-lite": "^0.7.2",
-    "jsonwebtoken": "^9.0.3",
+    "jsonwebtoken": "^9.0.3"
+  },
+  "devDependencies": {
     "nodemon": "^3.1.10",
     "prisma": "^6.19.3"
   }
