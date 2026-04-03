@@ -10,7 +10,7 @@
     "node": "20.x"
   },
   "dependencies": {
-    "@google/genai": "^1.27.0",
+    "@google/genai": "^1.48.0",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",

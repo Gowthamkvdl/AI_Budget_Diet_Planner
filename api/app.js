@@ -1,111 +1,144 @@
-// app.js (Using ES Module syntax)  
+// app.js
 
-// Setup Environment and Dependencies
-import 'dotenv/config'; 
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import historyRoutes from "./routes/history.js"  
-import authRoutes from "./routes/auth.js"
+import historyRoutes from "./routes/history.js";
+import authRoutes from "./routes/auth.js";
+import { GoogleGenAI, Type } from '@google/genai';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors()); 
-app.use(express.json()); 
+app.use(cors());
+app.use(express.json());
 app.use('/api/history', historyRoutes);
 app.use('/api/auth', authRoutes);
 
-// Check for API Key
+// Check API key
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not set in the .env file.");
+    throw new Error("GEMINI_API_KEY is not set in .env");
 }
 
+// Gemini init
+const ai = new GoogleGenAI({ apiKey });
 
-
-
-// --- PROMPT ASSEMBLY FUNCTION ---
-const createPlanPrompt = (constraints) => {
-    return `
-    You are an expert Smart Diet Planner... (etc.)
-    
-    USER CONSTRAINTS (CRITICAL):
-    1.  DIET TYPE: ${constraints.dietType || 'Balanced'}
-    2.  CALORIE GOAL: ${constraints.calorieTarget || 2000} calories per day.
-    3.  ALLERGIES/AVOIDANCES: ${constraints.allergies || 'None'}. 
-    4.  CUISINE FOCUS: ${constraints.cuisinePreference || 'Generic Indian'}. 
-    5.  MAX DAILY BUDGET (Hard Constraint): ${constraints.dailyBudget || 500} INR. 
-    
-    INSTRUCTIONS FOR COST:
-    * Use current, common grocery prices in a major Indian metro city (INR)...
-    
-    RETURN the result STRICTLY as a JSON array.
-    `;
+// Schema (KEEP THIS — very important)
+const mealPlanSchema = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            day: { type: Type.INTEGER },
+            meals: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        meal_type: { type: Type.STRING },
+                        dish_name: { type: Type.STRING },
+                        recipe_summary: { type: Type.STRING },
+                        calories_approx: { type: Type.INTEGER },
+                        budget_cost_approx: { type: Type.NUMBER }
+                    },
+                    required: [
+                        'meal_type',
+                        'dish_name',
+                        'recipe_summary',
+                        'calories_approx',
+                        'budget_cost_approx'
+                    ]
+                }
+            },
+            daily_total_cost_approx: { type: Type.NUMBER }
+        },
+        required: ['day', 'meals', 'daily_total_cost_approx']
+    }
 };
 
+// Prompt
+const createPlanPrompt = (c) => {
+    return `
+Return ONLY valid JSON.
 
-// --- API ROUTE ---
+7-day Indian diet plan.
+
+Constraints:
+Diet: ${c.dietType}
+Calories: ${c.calorieTarget}
+Budget: ${c.dailyBudget}
+Allergies: ${c.allergies}
+Cuisine: ${c.cuisinePreference}
+`;
+};
+
+// API
 app.post('/api/generate-plan', async (req, res) => {
     try {
-        const constraints = req.body; 
+        const c = req.body;
 
-        if (!constraints.calorieTarget || !constraints.dailyBudget) {
-            return res.status(400).json({ 
-                error: "Missing required constraints: calorieTarget and dailyBudget." 
+        if (!c.calorieTarget || !c.dailyBudget) {
+            return res.status(400).json({
+                error: "calorieTarget and dailyBudget required"
             });
         }
 
-        const prompt = createPlanPrompt(constraints);
+        const prompt = createPlanPrompt(c);
 
-        console.log(`Generating plan for: ${constraints.cuisinePreference} at ${constraints.dailyBudget} INR/day...`);
-
-        // ✅ DIRECT GEMINI API CALL (NO SDK)
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    contents: [
-                        {
-                            parts: [{ text: prompt }]
-                        }
-                    ]
-                })
+        const result = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: mealPlanSchema
             }
-        );
+        });
 
-        const data = await response.json();
-
-        // Extract text safely
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const text = result.text?.trim();
 
         if (!text) {
-            throw new Error("Invalid response from Gemini API");
+            return res.status(500).json({ error: "Empty AI response" });
         }
 
-        // Clean JSON (Gemini sometimes wraps with ```json)
-        const cleanText = text.replace(/```json|```/g, '').trim();
+        let data;
 
-        const planObject = JSON.parse(cleanText);
+        try {
+            data = JSON.parse(text);
+        } catch {
+            console.log("RAW:", text);
+            return res.status(500).json({
+                error: "Invalid JSON from AI",
+                raw: text
+            });
+        }
 
-        res.json(planObject);
+        // 🔥 safety cleanup (prevents ₹NaN)
+        data = data.map(day => ({
+            day: day.day || 1,
+            meals: (day.meals || []).map(m => ({
+                meal_type: m.meal_type || "Meal",
+                dish_name: m.dish_name || "Unknown",
+                recipe_summary: m.recipe_summary || "",
+                calories_approx: Number(m.calories_approx) || 0,
+                budget_cost_approx: Number(m.budget_cost_approx) || 0
+            })),
+            daily_total_cost_approx: Number(day.daily_total_cost_approx) || 0
+        }));
 
-    } catch (error) {
-        console.error('Error generating plan:', error);
+        res.json(data);
 
-        res.status(500).json({ 
-            error: 'Failed to generate meal plan from AI.', 
-            details: error.message 
+    } catch (err) {
+        console.error("ERROR:", err);
+        res.status(500).json({
+            error: "Plan generation failed",
+            details: err.message
         });
     }
 });
 
-
-// Start the server
+// Start server
 app.listen(PORT, () => {
-    console.log(`Server running securely on http://localhost:${PORT}`);
+    console.log(`Server running on http://localhost:${PORT}`);
 });
