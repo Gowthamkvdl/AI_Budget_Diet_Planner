@@ -31,8 +31,7 @@ const HistoryModal = ({ onClose }) => {
             </div>
 
             <div className="modal-body">
-            
-              { history.length > 0 ? history.map((item) => (
+              {history.map((item) => (
                 <div
                   key={item.id}
                   className="card p-2 mb-2"
@@ -44,7 +43,7 @@ const HistoryModal = ({ onClose }) => {
                     {new Date(item.createdAt).toLocaleString()}
                   </small>
                 </div>
-              ) ) : <strong className='mb-0 pb-2'>This is where your history lives. Once you generate a plan, it'll show up here.</strong> }
+              ))}
             </div>
 
           </div>

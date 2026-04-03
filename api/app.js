@@ -6,6 +6,7 @@ import express from 'express';
 import cors from 'cors';
 import historyRoutes from "./routes/history.js"  
 import authRoutes from "./routes/auth.js"
+import { GoogleGenAI, Type } from '@google/genai';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,8 +23,37 @@ if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not set in the .env file.");
 }
 
+const ai = new GoogleGenAI({ apiKey }); 
 
-// --- PROMPT ASSEMBLY FUNCTION ---
+
+const mealPlanSchema = {
+    type: Type.ARRAY,
+    description: "A 7-day meal plan, with daily budget and calorie estimates.",
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            day: { type: Type.INTEGER, description: "The day number in the plan (1 to 7)." },
+            meals: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        meal_type: { type: Type.STRING, description: "e.g., Breakfast, Lunch, Dinner, Snack." },
+                        dish_name: { type: Type.STRING, description: "Name of the suggested regional dish." },
+                        recipe_summary: { type: Type.STRING, description: "A very brief summary of the recipe/key ingredients." },
+                        calories_approx: { type: Type.INTEGER, description: "Estimated calorie count for the serving." },
+                        budget_cost_approx: { type: Type.NUMBER, description: "Estimated ingredient cost for this single serving in INR." }
+                    },
+                    required: ['meal_type', 'dish_name', 'recipe_summary', 'calories_approx', 'budget_cost_approx']
+                }
+            },
+            daily_total_cost_approx: { type: Type.NUMBER, description: "The calculated sum of all budget_cost_approx for the day." }
+        },
+        required: ['day', 'meals', 'daily_total_cost_approx']
+    }
+};
+
+// --- PROMPT ASSEMBLY FUNCTION --- (No change needed here)
 const createPlanPrompt = (constraints) => {
     return `
     You are an expert Smart Diet Planner... (etc.)
@@ -38,63 +68,38 @@ const createPlanPrompt = (constraints) => {
     INSTRUCTIONS FOR COST:
     * Use current, common grocery prices in a major Indian metro city (INR)...
     
-    RETURN the result STRICTLY as a JSON array.
+    RETURN the result STRICTLY as a JSON array adhering to the provided schema.
     `;
 };
 
 
-// --- API ROUTE ---
+// --- API ROUTE: The heart of the backend ---
 app.post('/api/generate-plan', async (req, res) => {
     try {
         const constraints = req.body; 
-
         if (!constraints.calorieTarget || !constraints.dailyBudget) {
-            return res.status(400).json({ 
-                error: "Missing required constraints: calorieTarget and dailyBudget." 
-            });
+            return res.status(400).json({ error: "Missing required constraints: calorieTarget and dailyBudget." });
         }
-
         const prompt = createPlanPrompt(constraints);
-
+        
         console.log(`Generating plan for: ${constraints.cuisinePreference} at ${constraints.dailyBudget} INR/day...`);
 
-        // ✅ DIRECT GEMINI API CALL (NO SDK)
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    contents: [
-                        {
-                            parts: [{ text: prompt }]
-                        }
-                    ]
-                })
+        const result = await ai.models.generateContent({
+            model: "gemini-2.5-flash", // Specify the model here instead of in initialization
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: mealPlanSchema
             }
-        );
+        });
 
-        const data = await response.json();
+        const jsonString = result.text.trim();
+        const planObject = JSON.parse(jsonString);
 
-        // Extract text safely
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!text) {
-            throw new Error("Invalid response from Gemini API");
-        }
-
-        // Clean JSON (Gemini sometimes wraps with ```json)
-        const cleanText = text.replace(/```json|```/g, '').trim();
-
-        const planObject = JSON.parse(cleanText);
-
-        res.json(planObject);
+        res.json(planObject); 
 
     } catch (error) {
         console.error('Error generating plan:', error);
-
         res.status(500).json({ 
             error: 'Failed to generate meal plan from AI.', 
             details: error.message 
