@@ -1,9 +1,11 @@
-// app.js (Using ES Module syntax)
+// app.js (Using ES Module syntax)  
 
 // Setup Environment and Dependencies
 import 'dotenv/config'; 
 import express from 'express';
 import cors from 'cors';
+import historyRoutes from "./routes/history.js"  
+import authRoutes from "./routes/auth.js"
 import { GoogleGenAI, Type } from '@google/genai';
 
 const app = express();
@@ -12,13 +14,14 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors()); 
 app.use(express.json()); 
+app.use('/api/history', historyRoutes);
+app.use('/api/auth', authRoutes);
 
 // Check for API Key
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not set in the .env file.");
 }
-
 
 const ai = new GoogleGenAI({ apiKey }); 
 

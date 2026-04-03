@@ -1,8 +1,8 @@
 // src/DietPlanner.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import axios from 'axios';
 import MealCard from './MealCard';
+import api from '../lib/api';
 
 const API_URL =
   import.meta.env.VITE_API_URL
@@ -102,8 +102,9 @@ const DietPlanner = () => {
 		const timer = simulateProgress();
 
 		try {
-			const response = await axios.post(API_URL, constraints);
+			const response = await api.post(API_URL, constraints);
 			setMealPlan(response.data);
+			await api.post('/api/history', { plan: response.data });
 			setProgress(100);
 		} catch (err) {
 			const details = err.response?.data?.details || err.message;
@@ -133,9 +134,9 @@ const DietPlanner = () => {
 	const loadingClass = isLoading ? 'is-loading' : '';
 
 	return (
-		<div className="container mt-2 mt-md-5">
+		<div className="container">
 			<header className="text-center mb-md-5">
-				<h1 className="display-4 text-success pt-5 font-weight-bold">
+				<h1 className="display-4 text-success pt-4 font-weight-bold">
 					Smart Budget Diet Planner
 				</h1>
 				<p className="lead text-muted">
