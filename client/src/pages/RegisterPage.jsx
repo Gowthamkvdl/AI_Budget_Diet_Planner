@@ -52,7 +52,7 @@ const RegisterPage = () => {
                                 type="text"
                                 name="name"
                                 className={`form-control ${errors.name ? 'is-invalid' : ''}`}
-                                placeholder="Gowtham K"
+                                placeholder="Your name"
                                 value={form.name}
                                 onChange={handleChange}
                                 autoComplete="name"
